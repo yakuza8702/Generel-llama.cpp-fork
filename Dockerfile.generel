@@ -1,0 +1,44 @@
+# syntax=docker/dockerfile:1
+
+# ---------- build stage ----------
+FROM nvidia/cuda:12.4.1-devel-ubuntu22.04 AS builder
+
+ARG CUDA_ARCH=86
+ARG BRANCH=unknown
+
+RUN apt-get update && DEBIAN_FRONTEND=noninteractive apt-get install -y \
+      git cmake ninja-build build-essential libcurl4-openssl-dev \
+    && rm -rf /var/lib/apt/lists/*
+
+WORKDIR /build
+COPY . .
+
+# Source is provided by the workflow (fresh clone of the chosen fork branch).
+# GGML_CUDA=ON  -> CUDA backend (RTX 3060 = sm_86)
+# GGML_NATIVE=OFF -> portable build (runner CPU differs from target)
+RUN cmake -S . -B build -G Ninja \
+      -DCMAKE_BUILD_TYPE=Release \
+      -DGGML_CUDA=ON \
+      -DCMAKE_CUDA_ARCHITECTURES=${CUDA_ARCH} \
+      -DGGML_NATIVE=OFF \
+      -DLLAMA_BUILD_SERVER=ON \
+      -DLLAMA_BUILD_TESTS=OFF \
+      -DLLAMA_CURL=ON \
+    && cmake --build build --config Release
+
+# ---------- runtime stage ----------
+FROM nvidia/cuda:12.4.1-runtime-ubuntu22.04
+
+ARG BRANCH=unknown
+LABEL org.opencontainers.image.source=https://github.com/GenerelSchwerz/llama.cpp
+LABEL org.opencontainers.image.branch=${BRANCH}
+
+RUN apt-get update && DEBIAN_FRONTEND=noninteractive apt-get install -y \
+      libcurl4 libgomp1 \
+    && rm -rf /var/lib/apt/lists/*
+
+WORKDIR /app
+COPY --from=builder /build/build/bin/ /app/
+
+ENTRYPOINT ["/app/llama-server"]
+CMD ["--version"]
