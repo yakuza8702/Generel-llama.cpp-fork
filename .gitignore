@@ -1,2 +1,8 @@
 src/
 *.log
+
+# never commit private keys
+git-priv-keys
+*.pem
+id_rsa*
+id_ed25519*
