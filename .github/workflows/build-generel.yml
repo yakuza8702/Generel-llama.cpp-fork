@@ -1,25 +1,25 @@
-name: Build GenerelSchwerz llama.cpp (CUDA docker)
+name: Build llama.cpp fork (CUDA docker)
 
 on:
   workflow_dispatch:
     inputs:
-      branch:
-        description: "Branch of GenerelSchwerz/llama.cpp to build"
-        required: true
+      source:
+        description: "Fork and branch to build (always cloned fresh at latest HEAD)"        required: true
         type: choice
-        default: moe-cache
+        default: codacus:perf
         options:
-          - moe-cache
-          - moe-cache-drafting
-          - llama/main
-          - llama/dev
-          - beellama/main
+          - codacus:perf
+          - generel:moe-cache
+          - generel:moe-cache-drafting
+          - generel:llama/main
+          - generel:llama/dev
+          - generel:beellama/main
       cuda_arch:
         description: "CUDA architecture to compile (RTX 3060 = 86; leave default if unsure)"
         required: false
         default: "86"
       extra_tag:
-        description: "Optional extra image tag (besides the auto branch tag and :latest)"
+        description: "Optional extra image tag (besides the auto source-branch tag)"
         required: false
         default: ""
 
@@ -36,35 +36,52 @@ jobs:
       - name: Checkout this repo (workflow + Dockerfile)
         uses: actions/checkout@v4
 
-      - name: Prepare names (branch slug, lowercase owner, image tags)
+      - name: Prepare names (repo, branch slug, image tags)
         id: prep
         shell: bash
         run: |
-          BRANCH="${{ inputs.branch }}"
-          SLUG="${BRANCH//\//-}"
+          SRC="${{ inputs.source }}"
+          REPO_KEY="${SRC%%:*}"          # codacus | generel
+          BRANCH="${SRC#*:}"             # e.g. master | moe-cache | llama/main
+          case "$REPO_KEY" in
+            codacus) CLONE_URL="https://github.com/thecodacus/llama.cpp.git" ;;
+            generel) CLONE_URL="https://github.com/GenerelSchwerz/llama.cpp.git" ;;
+            *) echo "Unknown source: $REPO_KEY"; exit 1 ;;
+          esac
+          SLUG="${REPO_KEY}-${BRANCH//\//-}"   # codacus-master | generel-moe-cache | ...
           OWNER="$(echo '${{ github.repository_owner }}' | tr '[:upper:]' '[:lower:]')"
           IMAGE="ghcr.io/${OWNER}/${IMAGE_REPO}"
-          TAGS="${IMAGE}:${SLUG},${IMAGE}:latest"
+          # :latest always points at the GenerelSchwerz moe-cache build;
+          # codacus builds get their own slug tag instead to avoid tag collisions.
+          if [ "$REPO_KEY" = "generel" ] && [ "$BRANCH" = "moe-cache" ]; then
+            TAGS="${IMAGE}:${SLUG},${IMAGE}:latest"
+          else
+            TAGS="${IMAGE}:${SLUG}"
+          fi
           if [ -n "${{ inputs.extra_tag }}" ]; then
             TAGS="${TAGS},${IMAGE}:${{ inputs.extra_tag }}"
           fi
           {
             echo "slug=${SLUG}"
+            echo "branch=${BRANCH}"
+            echo "clone_url=${CLONE_URL}"
             echo "image=${IMAGE}"
             echo "tags=${TAGS}"
           } >> "$GITHUB_OUTPUT"
-          echo "Image: ${IMAGE}"
-          echo "Tags:  ${TAGS}"
+          echo "Repo:   ${CLONE_URL}"
+          echo "Branch: ${BRANCH}"
+          echo "Image:  ${IMAGE}"
+          echo "Tags:   ${TAGS}"
 
       - name: Clone selected fork branch (always latest HEAD, no cache)
         shell: bash
         run: |
           rm -rf src
-          git clone --depth 1 --branch "${{ inputs.branch }}" --single-branch \
-            https://github.com/GenerelSchwerz/llama.cpp.git src
+          git clone --depth 1 --branch "${{ steps.prep.outputs.branch }}" --single-branch \
+            "${{ steps.prep.outputs.clone_url }}" src
           COMMIT="$(git -C src rev-parse --short HEAD)"
           echo "$COMMIT" > src_commit.txt
-          echo "Building branch=${{ inputs.branch }} commit=${COMMIT}"
+          echo "Building ${{ steps.prep.outputs.clone_url }} branch=${{ steps.prep.outputs.branch }} commit=${COMMIT}"
 
       - name: Copy Dockerfile into build context
         run: cp Dockerfile.generel src/Dockerfile.generel
@@ -88,7 +105,7 @@ jobs:
           tags: ${{ steps.prep.outputs.tags }}
           build-args: |
             CUDA_ARCH=${{ inputs.cuda_arch }}
-            BRANCH=${{ inputs.branch }}
+            BRANCH=${{ steps.prep.outputs.branch }}
           provenance: false
 
       - name: Summary
@@ -96,7 +113,8 @@ jobs:
           {
             echo "### Build result"
             echo ""
-            echo "- Branch: \`${{ inputs.branch }}\`"
+            echo "- Source: \`${{ steps.prep.outputs.clone_url }}\`"
+            echo "- Branch: \`${{ steps.prep.outputs.branch }}\`"
             echo "- Commit: $(cat src_commit.txt)"
             echo "- Image tags: \`${{ steps.prep.outputs.tags }}\`"
             echo "- CUDA arch: \`${{ inputs.cuda_arch }}\`"
