@@ -4,7 +4,8 @@ on:
   workflow_dispatch:
     inputs:
       source:
-        description: "Fork and branch to build (always cloned fresh at latest HEAD)"        required: true
+        description: "Fork and branch to build (always cloned fresh at latest HEAD)"
+        required: true
         type: choice
         default: codacus:perf
         options:
@@ -42,13 +43,13 @@ jobs:
         run: |
           SRC="${{ inputs.source }}"
           REPO_KEY="${SRC%%:*}"          # codacus | generel
-          BRANCH="${SRC#*:}"             # e.g. master | moe-cache | llama/main
+          BRANCH="${SRC#*:}"             # e.g. perf | moe-cache | llama/main
           case "$REPO_KEY" in
             codacus) CLONE_URL="https://github.com/thecodacus/llama.cpp.git" ;;
             generel) CLONE_URL="https://github.com/GenerelSchwerz/llama.cpp.git" ;;
             *) echo "Unknown source: $REPO_KEY"; exit 1 ;;
           esac
-          SLUG="${REPO_KEY}-${BRANCH//\//-}"   # codacus-master | generel-moe-cache | ...
+          SLUG="${REPO_KEY}-${BRANCH//\//-}"   # codacus-perf | generel-moe-cache | ...
           OWNER="$(echo '${{ github.repository_owner }}' | tr '[:upper:]' '[:lower:]')"
           IMAGE="ghcr.io/${OWNER}/${IMAGE_REPO}"
           # :latest always points at the GenerelSchwerz moe-cache build;
