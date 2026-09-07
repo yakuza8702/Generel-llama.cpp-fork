@@ -10,6 +10,13 @@ RUN apt-get update && DEBIAN_FRONTEND=noninteractive apt-get install -y \
       git cmake ninja-build build-essential libcurl4-openssl-dev \
     && rm -rf /var/lib/apt/lists/*
 
+# devel images ship only a linker STUB for the driver library (no real
+# libcuda.so.1). Make the stub visible to ld so executables linking
+# libggml-cuda.so resolve cuMem*/cuDevice* symbols. The real driver
+# libcuda.so.1 is injected at runtime by nvidia-container-toolkit (--gpus all).
+RUN ln -sf /usr/local/cuda/lib64/stubs/libcuda.so /usr/lib/x86_64-linux-gnu/libcuda.so.1
+ENV LIBRARY_PATH=/usr/local/cuda/lib64/stubs
+
 WORKDIR /build
 COPY . .
 
